@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Универсальный решатель задач ЛП</title>
+    <!-- ИСПРАВЛЕНО: Используем надежный CDN unpkg и правильный путь к файлу -->
+    <script src="https://unpkg.com/javascript-lp-solver@0.4.24/src/solver.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            max-width: 1000px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        h1 { text-align: center; color: #2c3e50; margin-bottom: 20px; }
+        .settings {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            align-items: flex-end;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .settings div { display: flex; flex-direction: column; }
+        label { font-size: 14px; font-weight: 600; margin-bottom: 5px; color: #555; }
+        input, select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        button:hover { background-color: #2980b9; }
+        .matrix-container {
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: center;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        th { background-color: #f8f9fa; color: #2c3e50; }
+        input[type="number"] { width: 70px; text-align: center; }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e8f8f5;
+            border-left: 5px solid #1abc9c;
+            border-radius: 5px;
+            display: none;
+            font-size: 16px;
+        }
+        .result h3 { margin-top: 0; color: #16a085; }
+        .chart-container {
+            position: relative;
+            height: 500px;
+            width: 100%;
+            margin-top: 20px;
+        }
+        .note { font-size: 13px; color: #888; text-align: center; margin-top: 10px; }
+        .error { color: #e74c3c; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Универсальный решатель задач ЛП</h1>
+        
+        <div class="settings">
+            <div>
+                <label>Кол-во переменных (x)</label>
+                <input type="number" id="numVars" value="2" min="1" max="10">
+            </div>
+            <div>
+                <label>Кол-во ограничений</label>
+                <input type="number" id="numCons" value="3" min="1" max="10">
+            </div>
+            <div>
+                <label>Цель</label>
+                <select id="opType">
+                    <option value="max">Максимизация (max)</option>
+                    <option value="min">Минимизация (min)</option>
+                </select>
+            </div>
+            <button onclick="buildMatrix()">Создать таблицу</button>
+            <button onclick="fillVariant3()" style="background-color: #f39c12;">Пример (Вариант 3)</button>
+        </div>
+
+        <div class="matrix-container" id="matrixContainer" style="display: none;">
+            <table id="matrixTable"></table>
+            <button onclick="solveLP()" style="margin-top: 15px; width: 100%; background-color: #27ae60;">Решить задачу</button>
+        </div>
+
+        <div class="result" id="resultBox"></div>
+        <div class="note" id="graphNote"></div>
+    </div>
+
+    <div class="container" id="graphContainer" style="display: none;">
+        <h2 style="text-align: center; color: #2c3e50;">Графическое решение (только для 2 переменных)</h2>
+        <div class="chart-container" id="chartWrapper" style="display: block;">
+            <canvas id="myChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        let chartInstance = null;
+
+        function buildMatrix() {
+            const numVars = parseInt(document.getElementById('numVars').value);
+            const numCons = parseInt(document.getElementById('numCons').value);
+            const opType = document.getElementById('opType').value;
+
+            if (numVars < 1 || numCons < 1) {
+                alert("Число переменных и ограничений должно быть больше 0!");
+                return;
+            }
+
+            const table = document.getElementById('matrixTable');
+            table.innerHTML = '';
+
+            let headerRow = '<tr><th></th>';
+            for (let j = 1; j <= numVars; j++) {
+                headerRow += `<th>x${j}</th>`;
+            }
+            headerRow += '<th>Знак</th><th>Правая часть (b)</th></tr>';
+            table.innerHTML += headerRow;
+
+            for (let i = 1; i <= numCons; i++) {
+                let row = `<tr><td><b>Ограничение ${i}</b></td>`;
+                for (let j = 1; j <= numVars; j++) {
+                    row += `<td><input type="number" id="a_${i}_${j}" value="0" step="any"></td>`;
+                }
+                row += `<td>
+                            <select id="sign_${i}">
+                                <option value="<=">&le;</option>
+                                <option value="=">=</option>
+                                <option value=">=">&ge;</option>
+                            </select>
+                        </td>`;
+                row += `<td><input type="number" id="b_${i}" value="0" step="any"></td></tr>`;
+                table.innerHTML += row;
+            }
+
+            let objRow = `<tr style="background-color: #eaf2f8;"><td><b>Целевая функция</b></td>`;
+            for (let j = 1; j <= numVars; j++) {
+                objRow += `<td><input type="number" id="obj_${j}" value="1" step="any"></td>`;
+            }
+            objRow += `<td>→ ${opType === 'max' ? 'max' : 'min'}</td><td></td></tr>`;
+            table.innerHTML += objRow;
+
+            document.getElementById('matrixContainer').style.display = 'block';
+            document.getElementById('resultBox').style.display = 'none';
+            document.getElementById('graphContainer').style.display = 'none';
+            document.getElementById('graphNote').innerText = '';
+        }
+
+        function fillVariant3() {
+            document.getElementById('numVars').value = 2;
+            document.getElementById('numCons').value = 3;
+            document.getElementById('opType').value = 'max';
+            buildMatrix();
+
+            const data = [
+                [6, 12, '<=', 918],
+                [8, 5, '<=', 918],
+                [13, 11, '<=', 783]
+            ];
+
+            for (let i = 1; i <= 3; i++) {
+                for (let j = 1; j <= 2; j++) {
+                    document.getElementById(`a_${i}_${j}`).value = data[i-1][j-1];
+                }
+                document.getElementById(`sign_${i}`).value = data[i-1][2];
+                document.getElementById(`b_${i}`).value = data[i-1][3];
+            }
+
+            document.getElementById('obj_1').value = 2;
+            document.getElementById('obj_2').value = 4;
+        }
+
+        function solveLP() {
+            try {
+                // ИСПРАВЛЕНО: Проверяем, загрузилась ли библиотека
+                if (typeof solver === 'undefined') {
+                    throw new Error("Библиотека для решения ЛП не загружена. Проверьте подключение к интернету или обновите страницу.");
+                }
+
+                const numVars = parseInt(document.getElementById('numVars').value);
+                const numCons = parseInt(document.getElementById('numCons').value);
+                const opType = document.getElementById('opType').value;
+
+                const objCoeffs = [];
+                for (let j = 1; j <= numVars; j++) {
+                    objCoeffs.push(parseFloat(document.getElementById(`obj_${j}`).value) || 0);
+                }
+
+                const constraints = [];
+                for (let i = 1; i <= numCons; i++) {
+                    const row = [];
+                    for (let j = 1; j <= numVars; j++) {
+                        row.push(parseFloat(document.getElementById(`a_${i}_${j}`).value) || 0);
+                    }
+                    const sign = document.getElementById(`sign_${i}`).value;
+                    const b = parseFloat(document.getElementById(`b_${i}`).value) || 0;
+                    constraints.push({ coeffs: row, sign: sign, b: b });
+                }
+
+                const model = {
+                    optimize: "profit",
+                    opType: opType,
+                    constraints: {},
+                    variables: {}
+                };
+
+                for (let j = 1; j <= numVars; j++) {
+                    model.variables[`x${j}`] = { profit: objCoeffs[j-1] };
+                }
+
+                for (let i = 1; i <= numCons; i++) {
+                    const cName = `c${i}`;
+                    model.constraints[cName] = {};
+                    if (constraints[i-1].sign === '<=') model.constraints[cName].max = constraints[i-1].b;
+                    else if (constraints[i-1].sign === '>=') model.constraints[cName].min = constraints[i-1].b;
+                    else model.constraints[cName].equal = constraints[i-1].b;
+
+                    for (let j = 1; j <= numVars; j++) {
+                        if (constraints[i-1].coeffs[j-1] !== 0) {
+                            model.variables[`x${j}`][cName] = constraints[i-1].coeffs[j-1];
+                        }
+                    }
+                }
+
+                const result = solver.Solve(model);
+                const resultBox = document.getElementById('resultBox');
+                resultBox.style.display = 'block';
+
+                if (result.feasible) {
+                    let html = `<h3>Результаты решения:</h3>`;
+                    for (let j = 1; j <= numVars; j++) {
+                        const val = result[`x${j}`] || 0;
+                        html += `<p><b>Переменная x${j}:</b> ${val.toFixed(3)}</p>`;
+                    }
+                    html += `<p style="font-size: 18px; color: #e74c3c;"><b>Оптимальное значение функции:</b> ${result.result.toFixed(3)}</p>`;
+                    resultBox.innerHTML = html;
+
+                    if (numVars === 2) {
+                        document.getElementById('graphContainer').style.display = 'block';
+                        document.getElementById('graphNote').innerText = 'График построен для двух переменных.';
+                        drawGraph(constraints, objCoeffs, result);
+                    } else {
+                        document.getElementById('graphContainer').style.display = 'none';
+                        document.getElementById('graphNote').innerText = 'График доступен только для задач с 2 переменными.';
+                    }
+                } else {
+                    resultBox.innerHTML = `<h3 class="error">Решение не найдено!</h3><p>Область допустимых решений пуста или задача не ограничена.</p>`;
+                    document.getElementById('graphContainer').style.display = 'none';
+                }
+            } catch (error) {
+                console.error(error);
+                document.getElementById('resultBox').style.display = 'block';
+                document.getElementById('resultBox').innerHTML = `<h3 class="error">Произошла ошибка:</h3><p>${error.message}</p>`;
+            }
+        }
+
+        function drawGraph(constraints, objCoeffs, result) {
+            const ctx = document.getElementById('myChart').getContext('2d');
+
+            let maxX = 10, maxY = 10;
+            constraints.forEach(c => {
+                if (c.coeffs[0] > 0) maxX = Math.max(maxX, c.b / c.coeffs[0] * 1.2);
+                if (c.coeffs[1] > 0) maxY = Math.max(maxY, c.b / c.coeffs[1] * 1.2);
+            });
+            if (maxX <= 0 || !isFinite(maxX)) maxX = 100;
+            if (maxY <= 0 || !isFinite(maxY)) maxY = 100;
+
+            const steps = 100;
+            const datasets = [];
+            const colors = ['blue', 'green', 'red', 'purple', 'orange', 'teal', 'brown'];
+
+            constraints.forEach((c, index) => {
+                const data = [];
+                if (c.coeffs[1] !== 0) { 
+                    for (let i = 0; i <= steps; i++) {
+                        const x = (maxX / steps) * i;
+                        const y = (c.b - c.coeffs[0] * x) / c.coeffs[1];
+                        data.push({x: x, y: Math.max(0, y)});
+                    }
+                } else if (c.coeffs[0] !== 0) { 
+                    const xVal = c.b / c.coeffs[0];
+                    data.push({x: xVal, y: 0});
+                    data.push({x: xVal, y: maxY});
+                }
+
+                datasets.push({
+                    label: `Ограничение ${index+1}`,
+                    data: data,
+                    borderColor: colors[index % colors.length],
+                    borderWidth: 2,
+                    fill: false,
+                    showLine: true,
+                    pointRadius: 0
+                });
+            });
+
+            const optX = result.x1 || 0;
+            const optY = result.x2 || 0;
+            const objData = [];
+            
+            if (objCoeffs[1] !== 0) {
+                for (let i = 0; i <= steps; i++) {
+                    const x = (maxX / steps) * i;
+                    const y = (result.result - objCoeffs[0] * x) / objCoeffs[1];
+                    objData.push({x: x, y: Math.max(0, y)});
+                }
+            } else if (objCoeffs[0] !== 0) {
+                const xVal = result.result / objCoeffs[0];
+                objData.push({x: xVal, y: 0});
+                objData.push({x: xVal, y: maxY});
+            }
+
+            datasets.push({
+                label: 'Целевая функция (оптимум)',
+                data: objData,
+                borderColor: 'black',
+                borderWidth: 2,
+                borderDash: [5, 5],
+                fill: false,
+                showLine: true,
+                pointRadius: 0
+            });
+
+            datasets.push({
+                label: 'Оптимальная точка',
+                data: [{x: optX, y: optY}],
+                backgroundColor: 'red',
+                borderColor: 'black',
+                borderWidth: 1,
+                pointRadius: 6,
+                pointHoverRadius: 8,
+                showLine: false
+            });
+
+            if (chartInstance) chartInstance.destroy();
+
+            chartInstance = new Chart(ctx, {
+                type: 'scatter',
+                data: { datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { type: 'linear', position: 'bottom', min: 0, max: maxX, title: { display: true, text: 'x1' } },
+                        y: { min: 0, max: maxY, title: { display: true, text: 'x2' } }
+                    }
+                }
+            });
+        }
+
+        window.onload = buildMatrix;
+    </script>
+</body>
+</html>
